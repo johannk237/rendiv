@@ -26,6 +26,19 @@ function probe(input: string): { hasAudio: boolean; durationSec: number | null }
   };
 }
 
+/** The file at a URL, saved in `dir`; null when it cannot be read (ffmpeg then gets the URL itself). */
+async function download(url: string, dir: string, rank: number): Promise<string | null> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    const file = path.join(dir, `${rank}${path.extname(new URL(url).pathname)}`);
+    fs.writeFileSync(file, Buffer.from(await response.arrayBuffer()));
+    return file;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Where ffmpeg reads an audio source from: a file of the bundle for a path (or for a URL of the render server, which
  * is closed by now), the URL itself for any other http(s) address. null for what it cannot read (data:, blob:).
@@ -95,13 +108,20 @@ export async function stitchFramesToVideo(options: StitchOptions): Promise<void>
 
   // Resolve audio sources to files or URLs ffmpeg reads, filtering out missing ones
   const resolvedAudio: Array<AudioSourceInfo & { input: string; sourceSec: number | null }> = [];
+  let downloadDir: string | null = null;
   for (const source of audioSources) {
-    const input = resolveAudioInput(source.src, assetsDir, assetsOrigin);
+    let input = resolveAudioInput(source.src, assetsDir, assetsOrigin);
+    const remote = input !== null && /^https?:\/\//i.test(input);
+    if (input && remote) {
+      // The static ffmpeg cannot resolve names such as "localhost": Node reads the URL, as the browser did.
+      downloadDir ??= fs.mkdtempSync(path.join(os.tmpdir(), 'rendiv-audio-'));
+      input = (await download(input, downloadDir, resolvedAudio.length)) ?? input;
+    }
     if (!input) {
       console.warn(`[rendiv] Audio source cannot be read by ffmpeg, skipped: ${source.src}`);
       continue;
     }
-    const isUrl = /^https?:\/\//i.test(input);
+    const isUrl = remote;
     if (!isUrl && !fs.existsSync(input)) {
       console.warn(`[rendiv] Audio source not found: ${input} (src: ${source.src})`);
       continue;
@@ -245,6 +265,7 @@ export async function stitchFramesToVideo(options: StitchOptions): Promise<void>
 
   const cleanup = () => {
     if (commandDir) fs.rmSync(commandDir, { recursive: true, force: true });
+    if (downloadDir) fs.rmSync(downloadDir, { recursive: true, force: true });
   };
 
   return new Promise<void>((resolve, reject) => {
