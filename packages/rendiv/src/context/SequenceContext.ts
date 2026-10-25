@@ -5,6 +5,9 @@ export interface SequenceContextValue {
   namePath: string;
   from: number;
   durationInFrames: number;
+  /** Frames the children can be seen for, in their own frames: the duration, cut by what remains of the enclosing
+   *  Sequence (or of the composition) after the start, times the playback rate. Unset outside any Sequence. */
+  visibleDurationInFrames?: number;
   parentOffset: number;
   accumulatedOffset: number;
   localOffset: number;

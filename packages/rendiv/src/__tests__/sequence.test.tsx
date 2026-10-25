@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import React from 'react';
+import React, { useContext } from 'react';
 import { render } from '@testing-library/react';
 import { useFrame } from '../hooks/use-frame';
 import { Sequence } from '../components/Sequence';
+import { Loop } from '../components/Loop';
 import { TimelineContext } from '../context/TimelineContext';
+import { SequenceContext } from '../context/SequenceContext';
 import { CompositionContext, type CompositionConfig } from '../context/CompositionContext';
 
 const compositionConfig: CompositionConfig = {
@@ -152,5 +154,48 @@ describe('Sequence', () => {
       </Sequence>
     ));
     expect(getByTestId('frame').textContent).toBe('15');
+  });
+});
+
+function VisibleDuration() {
+  return <div data-testid="visible">{String(useContext(SequenceContext).visibleDurationInFrames)}</div>;
+}
+
+describe('Sequence: visibleDurationInFrames', () => {
+  const visible = (frame: number, ui: React.ReactElement) => {
+    const { getByTestId, unmount } = renderAtFrame(frame, ui);
+    const text = getByTestId('visible').textContent;
+    unmount();
+    return text;
+  };
+
+  it('is unset outside any Sequence', () => {
+    expect(visible(0, <VisibleDuration />)).toBe('undefined');
+  });
+
+  it('is the duration of the Sequence', () => {
+    expect(visible(40, <Sequence from={30} durationInFrames={50}><VisibleDuration /></Sequence>)).toBe('50');
+  });
+
+  it('without a duration, is what remains of the composition', () => {
+    expect(visible(40, <Sequence from={30}><VisibleDuration /></Sequence>)).toBe('120');
+  });
+
+  it('is cut by the end of the composition and of the enclosing Sequence', () => {
+    expect(visible(130, <Sequence from={120} durationInFrames={100}><VisibleDuration /></Sequence>)).toBe('30');
+    expect(visible(50, (
+      <Sequence from={10} durationInFrames={50}>
+        <Sequence from={30} durationInFrames={100}><VisibleDuration /></Sequence>
+      </Sequence>
+    ))).toBe('20');
+  });
+
+  it('counts in the frames of a sped-up Sequence', () => {
+    expect(visible(10, <Sequence from={0} durationInFrames={40} playbackRate={2}><VisibleDuration /></Sequence>)).toBe('80');
+  });
+
+  it('in a Loop, is one iteration, the last one cut by the end', () => {
+    expect(visible(10, <Loop durationInFrames={40}><VisibleDuration /></Loop>)).toBe('40');
+    expect(visible(125, <Loop durationInFrames={40}><VisibleDuration /></Loop>)).toBe('30');
   });
 });
