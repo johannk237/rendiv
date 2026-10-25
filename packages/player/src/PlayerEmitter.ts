@@ -3,6 +3,10 @@ export type PlayerEventMap = {
   pause: void;
   ended: void;
   frameupdate: { frame: number };
+  /** After seekTo() (not during playback). */
+  seeked: { frame: number };
+  mutechange: { isMuted: boolean };
+  volumechange: { volume: number };
   error: { error: Error };
   fullscreenchange: { isFullscreen: boolean };
 };
