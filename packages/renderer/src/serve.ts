@@ -23,7 +23,34 @@ const MIME_TYPES: Record<string, string> = {
   '.webm': 'video/webm',
   '.mp3': 'audio/mpeg',
   '.wav': 'audio/wav',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.ogg': 'audio/ogg',
+  '.flac': 'audio/flac',
+  '.mov': 'video/quicktime',
 };
+
+/** The byte range a `Range: bytes=…` header asks for, null when it asks for none, 'invalid' when it cannot be served. */
+function parseRange(header: string | undefined, size: number): { start: number; end: number } | null | 'invalid' {
+  if (!header) return null;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  // Several ranges (multipart): serve the whole file instead
+  if (!match) return header.includes(',') ? null : 'invalid';
+  const [, from, to] = match;
+  let start: number;
+  let end: number;
+  if (from === '') {
+    // The last N bytes
+    if (to === '') return 'invalid';
+    start = Math.max(0, size - Number(to));
+    end = size - 1;
+  } else {
+    start = Number(from);
+    end = to === '' ? size - 1 : Math.min(Number(to), size - 1);
+  }
+  if (start > end || start >= size) return 'invalid';
+  return { start, end };
+}
 
 /** LRU cache for extracted video frames. */
 class FrameCache {
@@ -182,13 +209,34 @@ export function startServer(rootDir: string, preferredPort = 0): Promise<ServeRe
       const ext = path.extname(filePath).toLowerCase();
       const contentType = MIME_TYPES[ext] || 'application/octet-stream';
 
-      res.writeHead(200, {
+      // Content-Length and byte ranges: without them, the browser sees an audio or video file as a stream of unknown
+      // length (duration Infinity) and cannot seek in it.
+      const size = fs.statSync(filePath).size;
+      const headers: Record<string, string> = {
         'Content-Type': contentType,
         'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'no-cache',
+        'Accept-Ranges': 'bytes',
+      };
+      const range = parseRange(req.headers.range, size);
+      if (range === 'invalid') {
+        res.writeHead(416, { ...headers, 'Content-Range': `bytes */${size}` });
+        res.end();
+        return;
+      }
+      const { start, end } = range ?? { start: 0, end: size - 1 };
+      res.writeHead(range ? 206 : 200, {
+        ...headers,
+        'Content-Length': String(size === 0 ? 0 : end - start + 1),
+        ...(range ? { 'Content-Range': `bytes ${start}-${end}/${size}` } : {}),
       });
+      if (req.method === 'HEAD' || size === 0) {
+        res.end();
+        return;
+      }
 
-      const stream = fs.createReadStream(filePath);
+      const stream = fs.createReadStream(filePath, { start, end });
+      stream.on('error', () => res.destroy());
       stream.pipe(res);
     });
 
