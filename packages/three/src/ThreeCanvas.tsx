@@ -1,11 +1,11 @@
 import React, {
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useCallback,
-  type CSSProperties,
 } from 'react';
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useThree } from '@react-three/fiber';
 import {
   TimelineContext,
   SequenceContext,
@@ -16,18 +16,30 @@ import {
 } from '@rendiv/core';
 import { RendivContextBridge } from './RendivContextBridge';
 
-export interface ThreeCanvasProps {
+type CanvasProps = React.ComponentProps<typeof Canvas>;
+
+/** Every prop of R3F's <Canvas> (shadows, dpr, orthographic, flat, camera, gl…), plus its size. */
+export interface ThreeCanvasProps extends Omit<CanvasProps, 'children' | 'frameloop' | 'onCreated'> {
   children: React.ReactNode;
-  style?: CSSProperties;
-  className?: string;
-  /** R3F camera configuration. */
-  camera?: React.ComponentProps<typeof Canvas>['camera'];
-  /** R3F WebGL renderer settings. */
-  gl?: React.ComponentProps<typeof Canvas>['gl'];
+  /** Width in pixels. Default: the composition's width */
+  width?: number;
+  /** Height in pixels. Default: the composition's height */
+  height?: number;
+  onCreated?: CanvasProps['onCreated'];
 }
 
-interface R3FState {
-  advance: (timestamp: number) => void;
+/**
+ * Draws the scene once R3F has committed the frame: its effects run after its own reconciler applied the new props,
+ * which can be later than the main tree's commit (R3F's root is concurrent).
+ */
+function FrameAdvancer({ onDrawn }: { onDrawn: () => void }): null {
+  const advance = useThree((state) => state.advance);
+  const { frame } = useContext(TimelineContext);
+  useEffect(() => {
+    advance(performance.now());
+    onDrawn();
+  }, [frame, advance, onDrawn]);
+  return null;
 }
 
 /**
@@ -43,6 +55,10 @@ export function ThreeCanvas({
   className,
   camera,
   gl,
+  width: passedWidth,
+  height: passedHeight,
+  onCreated,
+  ...canvasProps
 }: ThreeCanvasProps): React.ReactElement {
   const timeline = useContext(TimelineContext);
   const sequence = useContext(SequenceContext);
@@ -51,7 +67,6 @@ export function ThreeCanvas({
 
   const isRendering = environment.environment === 'rendering';
   const holdHandleRef = useRef<number | null>(null);
-  const r3fStateRef = useRef<R3FState | null>(null);
 
   // Hold render until Canvas is created
   useEffect(() => {
@@ -69,8 +84,8 @@ export function ThreeCanvas({
   }, []);
 
   const handleCreated = useCallback(
-    (state: R3FState) => {
-      r3fStateRef.current = state;
+    (state: Parameters<NonNullable<CanvasProps['onCreated']>>[0]) => {
+      onCreated?.(state);
 
       if (isRendering) {
         state.advance(performance.now());
@@ -81,50 +96,37 @@ export function ThreeCanvas({
         holdHandleRef.current = null;
       }
     },
-    [isRendering],
+    [isRendering, onCreated],
   );
 
-  // In rendering mode, advance the Three.js scene on each frame change.
-  // This runs in the main React tree (not R3F's reconciler) so it fires
-  // reliably. holdRender prevents the screenshot until advance() completes.
+  // In rendering mode, each frame is held from the main tree's commit (before the renderer waits for holds) until
+  // FrameAdvancer has drawn it inside the canvas.
   const frameHoldRef = useRef<number | null>(null);
+  const releaseFrameHold = useCallback(() => {
+    if (frameHoldRef.current !== null) {
+      releaseRender(frameHoldRef.current);
+      frameHoldRef.current = null;
+    }
+  }, []);
 
-  useEffect(() => {
-    if (!isRendering || !r3fStateRef.current) return;
+  useLayoutEffect(() => {
+    if (!isRendering) return;
+    frameHoldRef.current = holdRender(`<ThreeCanvas>: drawing frame ${timeline.frame}`, { timeoutInMilliseconds: 30000 });
+    return releaseFrameHold;
+  }, [timeline.frame, isRendering, releaseFrameHold]);
 
-    const handle = holdRender('ThreeCanvas: advancing frame');
-    frameHoldRef.current = handle;
-
-    // requestAnimationFrame lets R3F's reconciler flush the context update
-    // (synced via useLayoutEffect inside Canvas) before we render the scene.
-    requestAnimationFrame(() => {
-      r3fStateRef.current?.advance(performance.now());
-
-      if (frameHoldRef.current !== null) {
-        releaseRender(frameHoldRef.current);
-        frameHoldRef.current = null;
-      }
-    });
-
-    return () => {
-      if (frameHoldRef.current !== null) {
-        releaseRender(frameHoldRef.current);
-        frameHoldRef.current = null;
-      }
-    };
-  }, [timeline.frame, isRendering]);
-
-  const width = composition?.width ?? 1920;
-  const height = composition?.height ?? 1080;
+  const width = passedWidth ?? composition?.width ?? 1920;
+  const height = passedHeight ?? composition?.height ?? 1080;
 
   // In rendering mode, preserve the WebGL drawing buffer so headless
   // Chromium screenshots capture the canvas content instead of a blank rect.
-  const glConfig = isRendering
-    ? { preserveDrawingBuffer: true, ...gl }
+  const glConfig = isRendering && (gl === undefined || (typeof gl === 'object' && !('domElement' in gl)))
+    ? { preserveDrawingBuffer: true, ...(gl as object | undefined) }
     : gl;
 
   return (
     <Canvas
+      {...canvasProps}
       frameloop={isRendering ? 'never' : 'always'}
       camera={camera}
       gl={glConfig}
@@ -139,6 +141,7 @@ export function ThreeCanvas({
         composition={composition}
         environment={environment}
       >
+        {isRendering && <FrameAdvancer onDrawn={releaseFrameHold} />}
         {children}
       </RendivContextBridge>
     </Canvas>
