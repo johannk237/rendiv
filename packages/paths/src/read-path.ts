@@ -19,8 +19,10 @@ export function readPath(d: string): PathSegment[] {
     const cmd = tokens[i];
     if (!COMMAND_RE.test(cmd)) continue;
 
-    const paramStr = tokens[i + 1] || '';
-    i++;
+    // A command without parameters (Z) is followed directly by the next command: leave that one to the next turn
+    const next = tokens[i + 1];
+    const paramStr = next !== undefined && !COMMAND_RE.test(next) ? next : '';
+    if (paramStr) i++;
     const nums = parseNumbers(paramStr);
 
     const isRelative = cmd === cmd.toLowerCase();

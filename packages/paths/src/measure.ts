@@ -1,11 +1,25 @@
 import type { PathSegment, PointOnPath, Point } from './types';
 import { readPath } from './read-path';
 
+/** The segments of a path as drawn: a Z is the line back to the start of its subpath. */
+function drawnSegments(d: string): PathSegment[] {
+  let startX = 0;
+  let startY = 0;
+  return readPath(d).map((seg) => {
+    if (seg.command === 'M') {
+      startX = seg.values[0];
+      startY = seg.values[1];
+      return seg;
+    }
+    return seg.command === 'Z' ? { command: 'L', values: [startX, startY] } : seg;
+  });
+}
+
 /**
  * Calculate the total length of an SVG path.
  */
 export function pathLength(d: string): number {
-  const segments = readPath(d);
+  const segments = drawnSegments(d);
   let total = 0;
   let cx = 0;
   let cy = 0;
@@ -25,7 +39,7 @@ export function pathLength(d: string): number {
  * Get the point and angle at a specific length along the path.
  */
 export function pointOnPath(d: string, length: number): PointOnPath {
-  const segments = readPath(d);
+  const segments = drawnSegments(d);
   let remaining = Math.max(0, length);
   let cx = 0;
   let cy = 0;
@@ -55,7 +69,7 @@ export function pointOnPath(d: string, length: number): PointOnPath {
  * Get the tangent vector at a specific length along the path.
  */
 export function tangentOnPath(d: string, length: number): Point {
-  const segments = readPath(d);
+  const segments = drawnSegments(d);
   let remaining = Math.max(0, length);
   let cx = 0;
   let cy = 0;
@@ -325,7 +339,7 @@ function arcPoint(cx: number, cy: number, vals: number[], t: number): Point {
   return { x, y };
 }
 
-function endpointToCenter(
+export function endpointToCenter(
   x1: number, y1: number,
   x2: number, y2: number,
   rx: number, ry: number,
