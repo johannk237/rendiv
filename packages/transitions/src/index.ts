@@ -1,5 +1,12 @@
 // Types
-export type { TransitionPresentation, TransitionStyles, TransitionTiming } from './types';
+export type {
+  TransitionPresentation,
+  TransitionStylePresentation,
+  TransitionComponentPresentation,
+  TransitionPresentationComponentProps,
+  TransitionStyles,
+  TransitionTiming,
+} from './types';
 
 // Component
 export {

@@ -1,5 +1,5 @@
-import React, { Children, type ReactNode, type CSSProperties } from 'react';
-import { Sequence, Fill, useFrame } from '@rendiv/core';
+import React, { Children, type ReactNode } from 'react';
+import { Sequence, Fill, useFrame, useCompositionConfig, flattenChildren } from '@rendiv/core';
 import type { TransitionPresentation, TransitionTiming } from './types';
 
 // --- Marker children ---
@@ -17,12 +17,12 @@ function TransitionSeriesSequence(_props: TransitionSeriesSequenceProps): React.
 }
 TransitionSeriesSequence.displayName = 'TransitionSeries.Sequence';
 
-export interface TransitionSeriesTransitionProps {
+export interface TransitionSeriesTransitionProps<PassedProps = Record<string, unknown>> {
   timing: TransitionTiming;
-  presentation?: TransitionPresentation;
+  presentation?: TransitionPresentation<PassedProps>;
 }
 
-function TransitionSeriesTransition(_props: TransitionSeriesTransitionProps): React.ReactNode {
+function TransitionSeriesTransition<PassedProps>(_props: TransitionSeriesTransitionProps<PassedProps>): React.ReactNode {
   throw new Error(
     '<TransitionSeries.Transition> can only be used as a direct child of <TransitionSeries>.',
   );
@@ -68,6 +68,39 @@ const noopPresentation: TransitionPresentation = {
   style: () => ({ entering: {}, exiting: {} }),
 };
 
+interface PresentedProps {
+  presentation: TransitionPresentation;
+  direction: 'entering' | 'exiting';
+  progress: number;
+  durationInFrames: number;
+  children: ReactNode;
+}
+
+/** The children as a presentation shows them at this progress. */
+function Presented({ presentation, direction, progress, durationInFrames, children }: PresentedProps): React.ReactElement {
+  if ('component' in presentation) {
+    const Presentation = presentation.component;
+    return (
+      <Presentation
+        presentationDirection={direction}
+        presentationProgress={progress}
+        presentationDurationInFrames={durationInFrames}
+        passedProps={presentation.props}
+      >
+        {children}
+      </Presentation>
+    );
+  }
+  const styles = presentation.style(progress);
+  return <Fill style={direction === 'entering' ? styles.entering : styles.exiting}>{children}</Fill>;
+}
+
+/**
+ * A scene with a transition stays inside its presentation for its whole duration, at the progress of the moment
+ * (1 once it has entered, 0 until it starts leaving): what a presentation shows at its ends stays on screen (a scale,
+ * a filter), and the tree keeps the same shape, so the scene is never remounted when a transition starts or ends.
+ * The exit wraps the entrance when a scene has both.
+ */
 function TransitionWrapper({
   children,
   durationInFrames,
@@ -75,22 +108,37 @@ function TransitionWrapper({
   exitTransition,
 }: TransitionWrapperProps): React.ReactElement {
   const frame = useFrame();
+  const { fps } = useCompositionConfig();
 
-  let style: CSSProperties = {};
+  if (!enterTransition && !exitTransition) return <Fill>{children}</Fill>;
 
-  if (enterTransition && frame < enterTransition.timing.durationInFrames) {
-    const progress = enterTransition.timing.progress(frame);
-    style = enterTransition.presentation.style(progress).entering;
-  } else if (exitTransition) {
-    const exitStart = durationInFrames - exitTransition.timing.durationInFrames;
-    if (frame >= exitStart) {
-      const transitionFrame = frame - exitStart;
-      const progress = exitTransition.timing.progress(transitionFrame);
-      style = exitTransition.presentation.style(progress).exiting;
-    }
+  let content = <>{children}</>;
+  if (enterTransition) {
+    content = (
+      <Presented
+        presentation={enterTransition.presentation}
+        direction="entering"
+        progress={enterTransition.timing.progress(frame, fps)}
+        durationInFrames={enterTransition.timing.durationInFrames}
+      >
+        {content}
+      </Presented>
+    );
   }
-
-  return <Fill style={style}>{children}</Fill>;
+  if (exitTransition) {
+    const exitStart = durationInFrames - exitTransition.timing.durationInFrames;
+    content = (
+      <Presented
+        presentation={exitTransition.presentation}
+        direction="exiting"
+        progress={exitTransition.timing.progress(frame - exitStart, fps)}
+        durationInFrames={exitTransition.timing.durationInFrames}
+      >
+        {content}
+      </Presented>
+    );
+  }
+  return content;
 }
 
 // --- Main component ---
@@ -100,7 +148,7 @@ export interface TransitionSeriesProps {
 }
 
 function TransitionSeriesRoot({ children }: TransitionSeriesProps): React.ReactElement {
-  const childArray = Children.toArray(children);
+  const childArray = flattenChildren(children);
 
   // Parse children into sequence/transition items
   const parsed: ParsedChild[] = [];
