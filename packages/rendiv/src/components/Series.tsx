@@ -1,4 +1,5 @@
 import React, { Children, type CSSProperties, type ReactNode } from 'react';
+import { flattenChildren } from '../flatten-children';
 import { Sequence } from './Sequence';
 
 export interface SeriesSequenceProps {
@@ -29,7 +30,7 @@ function SeriesSequence(_props: SeriesSequenceProps): React.ReactNode {
 SeriesSequence.displayName = 'Series.Sequence';
 
 function SeriesRoot({ children }: SeriesProps): React.ReactElement {
-  const childArray = Children.toArray(children);
+  const childArray = flattenChildren(children);
 
   let accumulatedFrom = 0;
   const sequences: React.ReactElement[] = [];
