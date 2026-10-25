@@ -9,6 +9,8 @@ export interface BundleOptions {
   entryPoint: string;
   outDir?: string;
   publicDir?: string;
+  /** Project root: Vite resolves modules (node_modules, aliases) from here. Default: the working directory. */
+  rootDir?: string;
   onProgress?: (progress: number) => void;
   viteConfigOverride?: (config: InlineConfig) => InlineConfig;
 }
@@ -21,7 +23,7 @@ export async function bundle(options: BundleOptions): Promise<string> {
   } = options;
 
   const outDir = options.outDir ?? path.join(os.tmpdir(), `rendiv-bundle-${Date.now()}`);
-  const cwd = process.cwd();
+  const cwd = options.rootDir ? path.resolve(options.rootDir) : process.cwd();
   const absoluteEntry = path.isAbsolute(entryPoint)
     ? entryPoint
     : path.resolve(cwd, entryPoint);
@@ -40,8 +42,10 @@ export async function bundle(options: BundleOptions): Promise<string> {
   const renderEntryCode = generateRenderEntryCode(absoluteEntry, timelineOverrides);
 
   // Write temp files in the project directory so Vite resolves modules correctly
-  const entryJsPath = path.join(cwd, '__rendiv_entry__.jsx');
-  const entryHtmlPath = path.join(cwd, '__rendiv_entry__.html');
+  // Unique names: two bundles of the same project can run at the same time.
+  const entryName = `__rendiv_entry_${process.pid}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}__`;
+  const entryJsPath = path.join(cwd, `${entryName}.jsx`);
+  const entryHtmlPath = path.join(cwd, `${entryName}.html`);
 
   fs.writeFileSync(entryJsPath, renderEntryCode);
 
@@ -58,7 +62,7 @@ export async function bundle(options: BundleOptions): Promise<string> {
 </head>
 <body>
   <div id="root"></div>
-  <script type="module" src="./__rendiv_entry__.jsx"></script>
+  <script type="module" src="./${entryName}.jsx"></script>
 </body>
 </html>`
   );
@@ -94,7 +98,7 @@ export async function bundle(options: BundleOptions): Promise<string> {
     onProgress?.(0.9);
 
     // Rename the output HTML to index.html
-    const outputHtmlPath = path.join(outDir, '__rendiv_entry__.html');
+    const outputHtmlPath = path.join(outDir, `${entryName}.html`);
     const targetHtmlPath = path.join(outDir, 'index.html');
     if (fs.existsSync(outputHtmlPath)) {
       fs.renameSync(outputHtmlPath, targetHtmlPath);
