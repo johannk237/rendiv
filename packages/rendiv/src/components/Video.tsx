@@ -10,6 +10,7 @@ import React, {
 import { TimelineContext } from '../context/TimelineContext';
 import { SequenceContext } from '../context/SequenceContext';
 import { CompositionContext } from '../context/CompositionContext';
+import { MediaVolumeContext } from '../context/MediaVolumeContext';
 import { RendivEnvironmentContext } from '../context/RendivEnvironmentContext';
 import { holdRender, releaseRender } from '../delay-render';
 import { computeLoopStartFrames } from '../compute-loop-offsets';
@@ -49,6 +50,7 @@ export function Video({
   const sequence = useContext(SequenceContext);
   const composition = useContext(CompositionContext);
   const { environment } = useContext(RendivEnvironmentContext);
+  const mediaVolume = useContext(MediaVolumeContext);
   const metadataHoldRef = useRef<number | null>(null);
   const lastSeekTimeRef = useRef<number | null>(null);
   const lastDriftSeekRef = useRef(0);
@@ -128,9 +130,9 @@ export function Video({
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    video.volume = volume;
-    video.muted = muted;
-  }, [volume, muted]);
+    video.volume = Math.min(1, Math.max(0, volume * mediaVolume.volume));
+    video.muted = muted || mediaVolume.muted;
+  }, [volume, muted, mediaVolume.volume, mediaVolume.muted]);
 
   // Sync playback rate — multiply the component's own rate by the
   // accumulated Sequence playbackRate so native playback keeps pace

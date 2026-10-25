@@ -16,7 +16,7 @@ export { CanvasElement, type CanvasElementProps } from './components/canvas-elem
 // Media Components
 export { Img, type ImgProps } from './components/Img';
 export { Video, type VideoProps } from './components/Video';
-export { Audio, type AudioProps } from './components/Audio';
+export { Audio, type AudioProps, type VolumeProp } from './components/Audio';
 export { AnimatedImage, type AnimatedImageProps } from './components/AnimatedImage';
 export { IFrame, type IFrameProps } from './components/IFrame';
 export { OffthreadVideo, type OffthreadVideoProps } from './components/offthread-video';
@@ -52,6 +52,7 @@ export {
 export { TimelineContext, type TimelineContextValue } from './context/TimelineContext';
 export { CompositionContext, type CompositionConfig } from './context/CompositionContext';
 export { SequenceContext, type SequenceContextValue } from './context/SequenceContext';
+export { MediaVolumeContext, type MediaVolumeContextValue } from './context/MediaVolumeContext';
 export {
   RendivEnvironmentContext,
   type RendivEnvironment,
