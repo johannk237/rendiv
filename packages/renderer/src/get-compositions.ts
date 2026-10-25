@@ -1,12 +1,13 @@
-import { openBrowser, openPage } from './browser.js';
+import { openBrowser, openPage, type OpenBrowserOptions } from './browser.js';
 import { startServer } from './serve.js';
+import { openCompositionPage, resolveComposition } from './composition-page.js';
 import type { CompositionInfo } from './types.js';
 
 export async function getCompositions(serveUrl: string): Promise<CompositionInfo[]> {
   const server = await startServer(serveUrl);
-  const browser = await openBrowser();
 
   try {
+    const browser = await openBrowser();
     const page = await openPage(browser, server.url, {
       width: 1920,
       height: 1080,
@@ -49,21 +50,27 @@ export async function getCompositions(serveUrl: string): Promise<CompositionInfo
   }
 }
 
+/**
+ * The composition `id`, with the metadata its resolveConfig computes from these props (duration, size, fps).
+ * Pass the result to renderMedia / renderStill.
+ */
 export async function selectComposition(
   serveUrl: string,
   id: string,
-  inputProps?: Record<string, unknown>
+  inputProps: Record<string, unknown> = {},
+  options: OpenBrowserOptions = {},
 ): Promise<CompositionInfo> {
-  const compositions = await getCompositions(serveUrl);
-  const comp = compositions.find((c: CompositionInfo) => c.id === id);
-  if (!comp) {
-    const available = compositions.map((c: CompositionInfo) => c.id).join(', ');
-    throw new Error(
-      `Composition "${id}" not found. Available: ${available || '(none)'}`
-    );
+  const server = await startServer(serveUrl);
+  try {
+    const browser = await openBrowser(options);
+    const target = await openCompositionPage({ browser, url: server.url, width: 1920, height: 1080 });
+    try {
+      const info = await resolveComposition(target, id, inputProps);
+      return { ...info, defaultProps: { ...info.defaultProps, ...inputProps } };
+    } finally {
+      await target.page.context().close();
+    }
+  } finally {
+    server.close();
   }
-  if (inputProps) {
-    comp.defaultProps = { ...comp.defaultProps, ...inputProps };
-  }
-  return comp;
 }

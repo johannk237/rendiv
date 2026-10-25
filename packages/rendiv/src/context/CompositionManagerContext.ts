@@ -1,16 +1,20 @@
 import { createContext, type ComponentType, type LazyExoticComponent } from 'react';
 
-export type ResolveConfigFunction<Props> = (options: {
-  defaultProps: Props;
-  props: Props;
-  abortSignal: AbortSignal;
-}) => Promise<{
+export interface ResolvedConfig<Props> {
   durationInFrames?: number;
   fps?: number;
   width?: number;
   height?: number;
   props?: Props;
-}>;
+}
+
+/** Computes a composition's metadata from its props before rendering (e.g. its duration from its content). */
+export type ResolveConfigFunction<Props> = (options: {
+  defaultProps: Props;
+  props: Props;
+  abortSignal: AbortSignal;
+  compositionId: string;
+}) => Promise<ResolvedConfig<Props>> | ResolvedConfig<Props>;
 
 export interface CompositionEntry<Props = Record<string, unknown>> {
   id: string;

@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
-import type { Page } from 'playwright';
-import { openBrowser, openPage, type OpenBrowserOptions } from './browser.js';
+import { openBrowser, type OpenBrowserOptions } from './browser.js';
+import { mountComposition, openCompositionPage, showFrame, type CompositionPage } from './composition-page.js';
 import { startServer } from './serve.js';
 import type { AudioSourceInfo, CompositionInfo } from './types.js';
 
@@ -43,10 +43,12 @@ export interface RenderFramesOptions {
   jpegQuality?: number;
   gl?: OpenBrowserOptions['gl'];
   profiling?: boolean;
+  /** Device pixel ratio of the frames: 2 doubles the width and height. Default: 1 */
+  scale?: number;
 }
 
 async function renderSingleFrame(
-  page: Page,
+  target: CompositionPage,
   frame: number,
   outputDir: string,
   timeoutPerFrame: number,
@@ -54,33 +56,22 @@ async function renderSingleFrame(
   jpegQuality: number,
   profiling: boolean,
 ): Promise<FrameTimings | null> {
+  const { page } = target;
   const t0 = profiling ? performance.now() : 0;
 
-  // Set the frame and wait for it to be ready.
-  // __RENDIV_SET_FRAME__ resolves once holds === 0, so this includes
-  // both React rendering AND hold waiting (e.g. OffthreadVideo extraction).
-  // The browser records actual flushSync time in __RENDIV_RENDER_MS__.
-  await page.evaluate((f: number) => {
-    return (window as any).__RENDIV_SET_FRAME__(f);
-  }, frame);
+  // Set the frame and wait for it to be ready: React rendering, then every
+  // pending hold (e.g. OffthreadVideo extraction). Fails on a page error.
+  await showFrame(target, frame, timeoutPerFrame);
 
   const t1 = profiling ? performance.now() : 0;
 
-  // Read the browser-side measurement of just the React flushSync time.
-  // This separates actual React rendering from hold waiting that happens
-  // inside the same evaluate call.
+  // Read the browser-side measurement of just the React flushSync time,
+  // to separate it from hold waiting.
   const browserRenderMs = profiling
     ? await page.evaluate(() => (window as any).__RENDIV_RENDER_MS__ ?? 0) as number
     : 0;
 
-  // Additional poll for holds placed asynchronously after __RENDIV_SET_FRAME__
-  // resolves (e.g. useEffect-based holdRender that fires after the promise).
-  await page.waitForFunction(
-    () => (window as any).__RENDIV_PENDING_HOLDS__() === 0,
-    { timeout: timeoutPerFrame, polling: 4 }
-  );
-
-  const t2 = profiling ? performance.now() : 0;
+  const t2 = t1;
 
   // Screenshot
   const paddedFrame = String(frame).padStart(6, '0');
@@ -88,7 +79,6 @@ async function renderSingleFrame(
   await page.screenshot({
     path: path.join(outputDir, `frame-${paddedFrame}.${ext}`),
     type: imageFormat,
-    animations: 'disabled',
     ...(imageFormat === 'jpeg' ? { quality: jpegQuality } : {}),
   });
 
@@ -96,14 +86,9 @@ async function renderSingleFrame(
 
   if (!profiling) return null;
 
-  // Use browser-side render time for accurate React render measurement.
-  // The remaining evaluate time (t1 - t0 - browserRenderMs) is hold waiting
-  // that happened inside __RENDIV_SET_FRAME__'s promise.
-  const evaluateHoldMs = Math.max(0, (t1 - t0) - browserRenderMs);
-
   return {
     setFrameMs: browserRenderMs,
-    waitForHoldsMs: evaluateHoldMs + (t2 - t1),
+    waitForHoldsMs: Math.max(0, (t1 - t0) - browserRenderMs),
     screenshotMs: t3 - t2,
     totalMs: t3 - t0,
   };
@@ -148,6 +133,8 @@ function computeProfile(allTimings: FrameTimings[], totalRenderTimeMs: number): 
 
 export interface RenderFramesResult {
   audioSources: AudioSourceInfo[];
+  /** Origin the bundle was served from: audio URLs on it point to files of the bundle. */
+  origin: string;
   profile?: RenderProfile;
 }
 
@@ -166,6 +153,7 @@ export async function renderFrames(options: RenderFramesOptions): Promise<Render
     jpegQuality = 80,
     gl,
     profiling = false,
+    scale = 1,
   } = options;
 
   const [startFrame, endFrame] = frameRange ?? [0, composition.durationInFrames - 1];
@@ -174,36 +162,22 @@ export async function renderFrames(options: RenderFramesOptions): Promise<Render
   fs.mkdirSync(outputDir, { recursive: true });
 
   const server = await startServer(serveUrl);
-  const browser = await openBrowser({ gl });
 
   try {
+    const browser = await openBrowser({ gl });
     // Create page pool
-    const pages: Page[] = [];
+    const pages: CompositionPage[] = [];
     for (let i = 0; i < concurrency; i++) {
-      const page = await openPage(browser, server.url, {
+      const page = await openCompositionPage({
+        browser,
+        url: server.url,
         width: composition.width,
         height: composition.height,
+        scale,
       });
-
-      // Wait for entry to load
-      await page.waitForFunction(() => (window as any).__RENDIV_LOADED__ === true, {
-        timeout: 30000,
-      });
-
-      // Set composition, input props, and image format for OffthreadVideo
-      await page.evaluate(
-        ({ id, props, imgFormat }: { id: string; props: Record<string, unknown>; imgFormat: string }) => {
-          (window as any).__RENDIV_IMAGE_FORMAT__ = imgFormat;
-          (window as any).__RENDIV_SET_INPUT_PROPS__(props);
-          (window as any).__RENDIV_SET_COMPOSITION__(id);
-        },
-        { id: composition.id, props: inputProps, imgFormat: imageFormat }
-      );
-
-      // Wait for composition to render
-      await page.waitForTimeout(100);
-
       pages.push(page);
+      // Set composition, input props, and image format for OffthreadVideo
+      await mountComposition(page, composition.id, inputProps, imageFormat);
     }
 
     // Render frames using a simple pool
@@ -212,9 +186,9 @@ export async function renderFrames(options: RenderFramesOptions): Promise<Render
     const allTimings: FrameTimings[] = [];
     const renderStartTime = profiling ? performance.now() : 0;
 
-    const renderNext = async (page: Page): Promise<void> => {
+    const renderNext = async (page: CompositionPage): Promise<void> => {
       while (frameQueue.length > 0) {
-        if (cancelSignal?.aborted) return;
+        if (cancelSignal?.aborted || failed) return;
 
         const frame = frameQueue.shift()!;
         const timings = await renderSingleFrame(page, frame, outputDir, timeoutPerFrame, imageFormat, jpegQuality, profiling);
@@ -228,30 +202,38 @@ export async function renderFrames(options: RenderFramesOptions): Promise<Render
       }
     };
 
-    await Promise.all(pages.map((page) => renderNext(page)));
+    // The first page that fails stops the others
+    let failed = false;
+    await Promise.all(pages.map((page) => renderNext(page).catch((e) => {
+      failed = true;
+      throw e;
+    })));
 
     const renderEndTime = profiling ? performance.now() : 0;
 
     // Collect audio source metadata registered by Audio/Video components.
-    // The persistent Map accumulates entries across all frames, so reading
-    // from any page after rendering captures everything.
-    const audioSources = await pages[0].evaluate(() => {
-      const w = window as any;
-      const map = w.__RENDIV_AUDIO_SOURCES__ as Map<string, unknown> | undefined;
-      if (!map || map.size === 0) return [];
-      return Array.from(map.values());
-    }) as AudioSourceInfo[];
+    // Each page keeps the entries of the frames it rendered: merge them all
+    // (a sound heard only in another page's frames must not be lost).
+    const audioByKey = new Map<string, AudioSourceInfo>();
+    for (const { page } of pages) {
+      const entries = await page.evaluate(() => {
+        const map = (window as any).__RENDIV_AUDIO_SOURCES__ as Map<string, unknown> | undefined;
+        return map ? Array.from(map.entries()) : [];
+      }) as Array<[string, AudioSourceInfo]>;
+      for (const [key, source] of entries) audioByKey.set(key, source);
+    }
+    const audioSources = Array.from(audioByKey.values());
 
     // Cleanup pages
-    for (const page of pages) {
-      await page.close();
+    for (const { page } of pages) {
+      await page.context().close();
     }
 
     const profile = profiling && allTimings.length > 0
       ? computeProfile(allTimings, renderEndTime - renderStartTime)
       : undefined;
 
-    return { audioSources, profile };
+    return { audioSources, profile, origin: server.url };
   } finally {
     server.close();
   }

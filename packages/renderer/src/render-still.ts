@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { openBrowser, openPage, type OpenBrowserOptions } from './browser.js';
+import { openBrowser, type OpenBrowserOptions } from './browser.js';
+import { mountComposition, openCompositionPage, showFrame } from './composition-page.js';
 import { startServer } from './serve.js';
 import type { CompositionInfo } from './types.js';
 
@@ -14,6 +15,8 @@ export interface RenderStillOptions {
   quality?: number;
   timeoutPerFrame?: number;
   gl?: OpenBrowserOptions['gl'];
+  /** Device pixel ratio of the image: 0.5 halves the width and height. Default: 1 */
+  scale?: number;
 }
 
 export async function renderStill(options: RenderStillOptions): Promise<void> {
@@ -27,6 +30,7 @@ export async function renderStill(options: RenderStillOptions): Promise<void> {
     quality,
     timeoutPerFrame = 30000,
     gl,
+    scale = 1,
   } = options;
 
   // Ensure output directory exists
@@ -34,46 +38,27 @@ export async function renderStill(options: RenderStillOptions): Promise<void> {
   fs.mkdirSync(outputDir, { recursive: true });
 
   const server = await startServer(serveUrl);
-  const browser = await openBrowser({ gl });
 
   try {
-    const page = await openPage(browser, server.url, {
+    const browser = await openBrowser({ gl });
+    const target = await openCompositionPage({
+      browser,
+      url: server.url,
       width: composition.width,
       height: composition.height,
+      scale,
     });
-
-    await page.waitForFunction(() => (window as any).__RENDIV_LOADED__ === true, {
-      timeout: 30000,
-    });
-
-    await page.evaluate(
-      ({ id, props }: { id: string; props: Record<string, unknown> }) => {
-        (window as any).__RENDIV_SET_INPUT_PROPS__(props);
-        (window as any).__RENDIV_SET_COMPOSITION__(id);
-      },
-      { id: composition.id, props: inputProps }
-    );
-
-    await page.waitForTimeout(100);
-
-    // Set frame
-    await page.evaluate((f: number) => {
-      return (window as any).__RENDIV_SET_FRAME__(f);
-    }, frame);
-
-    await page.waitForFunction(
-      () => (window as any).__RENDIV_PENDING_HOLDS__() === 0,
-      { timeout: timeoutPerFrame }
-    );
+    const { page } = target;
+    await mountComposition(target, composition.id, inputProps);
+    await showFrame(target, frame, timeoutPerFrame);
 
     await page.screenshot({
       path: output,
       type: imageFormat,
       quality: imageFormat === 'jpeg' ? (quality ?? 80) : undefined,
-      animations: 'disabled',
     });
 
-    await page.close();
+    await page.context().close();
   } finally {
     server.close();
   }

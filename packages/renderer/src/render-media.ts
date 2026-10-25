@@ -36,7 +36,12 @@ export interface RenderMediaOptions {
   gl?: GlRenderer;
   /** Enable per-frame profiling. Default: false */
   profiling?: boolean;
+  /** Device pixel ratio of the video: 2 doubles the width and height. Default: 1 */
+  scale?: number;
 }
+
+/** H.264 needs even dimensions. */
+const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
 
 export interface RenderMediaResult {
   profile?: RenderProfile;
@@ -60,6 +65,7 @@ export async function renderMedia(options: RenderMediaOptions): Promise<RenderMe
     videoEncoder,
     gl,
     profiling = false,
+    scale,
   } = options;
 
   const totalFrames = frameRange
@@ -79,7 +85,14 @@ export async function renderMedia(options: RenderMediaOptions): Promise<RenderMe
     let frameCount = 0;
 
     // Step 1: Render frames and collect audio metadata
-    const { audioSources, profile } = await renderFrames({
+    // Below 1, frames are captured at full size and scaled down by ffmpeg: Chromium captures a page with a device
+    // scale factor under 1 several times slower than at 1.
+    const captureScale = scale !== undefined && scale >= 1 ? scale : 1;
+    const outputSize = scale !== undefined && scale < 1
+      ? { width: even(composition.width * scale), height: even(composition.height * scale) }
+      : undefined;
+
+    const { audioSources, profile, origin } = await renderFrames({
       serveUrl,
       composition,
       outputDir: tmpDir,
@@ -90,6 +103,7 @@ export async function renderMedia(options: RenderMediaOptions): Promise<RenderMe
       jpegQuality,
       gl,
       profiling,
+      scale: captureScale,
       onFrameRendered: ({ frame, total, timings }) => {
         let avgFrameTimeMs: number | undefined;
         let estimatedRemainingMs: number | undefined;
@@ -135,6 +149,8 @@ export async function renderMedia(options: RenderMediaOptions): Promise<RenderMe
       imageFormat,
       audioSources,
       assetsDir: serveUrl,
+      assetsOrigin: origin,
+      outputSize,
     });
 
     onProgress?.({

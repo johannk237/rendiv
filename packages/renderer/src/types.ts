@@ -5,6 +5,8 @@ export interface CompositionInfo {
   width: number;
   height: number;
   defaultProps: Record<string, unknown>;
+  /** The props the composition renders with, once its resolveConfig has run (selectComposition). */
+  props?: Record<string, unknown>;
   type: 'composition' | 'still';
 }
 
