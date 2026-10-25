@@ -24,7 +24,8 @@ export { Prefetch, type PrefetchProps } from './components/Prefetch';
 
 // Animation
 export { interpolate, type InterpolateOptions, type ExtrapolationType } from './animation/interpolate';
-export { spring, type SpringConfig, type SpringOptions } from './animation/spring';
+export { spring, springProgress, springSeconds, type SpringConfig, type SpringOptions } from './animation/spring';
+export { random } from './animation/random';
 export { getSpringDuration, type GetSpringDurationOptions } from './animation/measure-spring';
 export { Easing, type EasingFunction } from './animation/easing';
 export { blendColors } from './animation/interpolate-colors';

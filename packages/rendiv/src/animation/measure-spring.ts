@@ -1,4 +1,4 @@
-import { spring, type SpringConfig } from './spring';
+import { springProgress, springSeconds, type SpringConfig } from './spring';
 
 export interface GetSpringDurationOptions {
   fps: number;
@@ -8,31 +8,35 @@ export interface GetSpringDurationOptions {
   threshold?: number;
 }
 
+/** Frames a spring has to stay within `threshold` of its target to count as settled (a bouncy one crosses it). */
+const SETTLED_FRAMES = 20;
+
+/**
+ * Frames a spring takes to settle: from then on it stays within `threshold` (a fraction of the distance from `from`
+ * to `to`) of its target.
+ */
 export function getSpringDuration(options: GetSpringDurationOptions): number {
-  const {
-    fps,
-    config,
-    from = 0,
-    to = 1,
-    threshold = 0.005,
-  } = options;
+  const { fps, config, threshold = 0.005 } = options;
 
-  const maxFrames = fps * 60; // 60 seconds max
+  if (threshold <= 0) return Infinity;
+  if (threshold >= 1) return 0;
 
-  for (let frame = 0; frame < maxFrames; frame++) {
-    const value = spring({
-      frame,
-      fps,
-      config,
-      from,
-      to,
-      durationRestThreshold: threshold,
-    });
+  const maxFrames = fps * 600; // 10 minutes
+  const off = (frame: number) => {
+    let p = springProgress(springSeconds(frame, fps), config);
+    if (config?.clampOvershoot ?? config?.overshootClamping) p = Math.min(p, 1);
+    return Math.abs(1 - p) >= threshold;
+  };
 
-    if (Math.abs(value - to) < threshold) {
-      return frame;
+  let frame = 0;
+  while (off(frame) && frame < maxFrames) frame++;
+  let settled = frame;
+  for (let quiet = 0; quiet < SETTLED_FRAMES && frame < maxFrames; quiet++) {
+    frame++;
+    if (off(frame)) {
+      quiet = 0;
+      settled = frame + 1;
     }
   }
-
-  return maxFrames;
+  return settled;
 }

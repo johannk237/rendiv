@@ -3,6 +3,8 @@ export interface SpringConfig {
   mass?: number;
   stiffness?: number;
   clampOvershoot?: boolean;
+  /** Same as `clampOvershoot` (the name other frame-based libraries use). */
+  overshootClamping?: boolean;
 }
 
 export interface SpringOptions {
@@ -13,45 +15,55 @@ export interface SpringOptions {
   to?: number;
   durationInFrames?: number;
   durationRestThreshold?: number;
+  /** Frames to wait before the spring starts. Default: 0 */
+  delay?: number;
 }
 
-function springStep(
-  position: number,
-  velocity: number,
-  target: number,
-  stiffness: number,
-  damping: number,
-  mass: number,
-  dt: number
-): { position: number; velocity: number } {
-  // Damped harmonic oscillator using semi-implicit Euler integration
-  const springForce = -stiffness * (position - target);
-  const dampingForce = -damping * velocity;
-  const acceleration = (springForce + dampingForce) / mass;
+/** A frame is never simulated as more than this many seconds (keeps very low frame rates stable). */
+const MAX_STEP_SECONDS = 0.064;
 
-  const newVelocity = velocity + acceleration * dt;
-  const newPosition = position + newVelocity * dt;
+/**
+ * Position of a spring released at 0 with no velocity, pulled towards 1, after `seconds`.
+ * Closed-form solution of the damped harmonic oscillator, so it is exact at any frame and costs the same at frame 1000
+ * as at frame 1. Damping ratios of 1 and above use the critically damped curve: a heavily damped spring
+ * (e.g. damping 200) eases in quickly instead of crawling towards its target.
+ */
+export function springProgress(
+  seconds: number,
+  { damping = 10, mass = 1, stiffness = 100 }: Pick<SpringConfig, 'damping' | 'mass' | 'stiffness'> = {},
+): number {
+  if (damping <= 0) {
+    throw new Error('spring(): damping must be greater than 0, otherwise the spring never settles.');
+  }
+  if (seconds <= 0) return 0;
+  const omega0 = Math.sqrt(stiffness / mass);
+  const zeta = damping / (2 * Math.sqrt(stiffness * mass));
+  if (zeta < 1) {
+    const omega1 = omega0 * Math.sqrt(1 - zeta * zeta);
+    const envelope = Math.exp(-zeta * omega0 * seconds);
+    return 1 - envelope * (Math.cos(omega1 * seconds) + ((zeta * omega0) / omega1) * Math.sin(omega1 * seconds));
+  }
+  return 1 - Math.exp(-omega0 * seconds) * (1 + omega0 * seconds);
+}
 
-  return { position: newPosition, velocity: newVelocity };
+/** Seconds of simulated time at `frame` (each frame advances 1/fps, capped for very low frame rates). */
+export function springSeconds(frame: number, fps: number): number {
+  return Math.max(0, frame) * Math.min(1 / fps, MAX_STEP_SECONDS);
 }
 
 export function spring(options: SpringOptions): number {
   const {
-    frame,
+    frame: passedFrame,
     fps,
     config = {},
     from = 0,
     to = 1,
     durationInFrames,
-    durationRestThreshold = 0.005,
+    delay = 0,
   } = options;
 
-  const {
-    damping = 10,
-    mass = 1,
-    stiffness = 100,
-    clampOvershoot = false,
-  } = config;
+  const clampOvershoot = config.clampOvershoot ?? config.overshootClamping ?? false;
+  const frame = passedFrame - delay;
 
   if (frame < 0) return from;
 
@@ -59,39 +71,8 @@ export function spring(options: SpringOptions): number {
     return to;
   }
 
-  // Simulate the spring from frame 0 up to the requested frame
-  // Using sub-steps for accuracy (4 sub-steps per frame)
-  const dt = 1 / fps;
-  const subSteps = 4;
-  const subDt = dt / subSteps;
+  let progress = springProgress(springSeconds(frame, fps), config);
+  if (clampOvershoot) progress = Math.min(progress, 1);
 
-  let position = from;
-  let velocity = 0;
-
-  for (let f = 0; f < frame; f++) {
-    for (let s = 0; s < subSteps; s++) {
-      const result = springStep(position, velocity, to, stiffness, damping, mass, subDt);
-      position = result.position;
-      velocity = result.velocity;
-    }
-
-    if (clampOvershoot) {
-      if (from < to) {
-        position = Math.min(position, to);
-      } else {
-        position = Math.max(position, to);
-      }
-      if (position === to) velocity = 0;
-    }
-
-    // Early termination if settled
-    if (
-      Math.abs(position - to) < durationRestThreshold &&
-      Math.abs(velocity) < durationRestThreshold
-    ) {
-      return to;
-    }
-  }
-
-  return position;
+  return from + progress * (to - from);
 }

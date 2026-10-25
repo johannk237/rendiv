@@ -67,6 +67,21 @@ export const Easing = {
 
   bezier: cubicBezier,
 
+  // Standard curves, to combine with in / out / inOut (e.g. Easing.out(Easing.cubic))
+  step0: ((t: number) => (t > 0 ? 1 : 0)) as EasingFunction,
+  step1: ((t: number) => (t >= 1 ? 1 : 0)) as EasingFunction,
+  quad: ((t: number) => t * t) as EasingFunction,
+  cubic: ((t: number) => t * t * t) as EasingFunction,
+  poly: (n: number): EasingFunction => (t: number) => Math.pow(t, n),
+  sin: ((t: number) => 1 - Math.cos((t * Math.PI) / 2)) as EasingFunction,
+  circle: ((t: number) => {
+    const u = Math.min(1, Math.max(0, t));
+    return 1 - Math.sqrt(1 - u * u);
+  }) as EasingFunction,
+  exp: ((t: number) => Math.pow(2, 10 * (t - 1))) as EasingFunction,
+  /** Pulls back slightly before moving forward. `overshoot` 1.70158 gives about 10%. */
+  back: (overshoot: number = 1.70158): EasingFunction => (t: number) => t * t * ((overshoot + 1) * t - overshoot),
+
   bounce: ((t: number): number => {
     const n1 = 7.5625;
     const d1 = 2.75;
