@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useRef, type ImgHTMLAttributes } from 'react';
+import React, { useCallback, useContext, useEffect, useRef, type ImgHTMLAttributes } from 'react';
 import { holdRender, releaseRender } from '../delay-render';
+import { RendivEnvironmentContext } from '../context/RendivEnvironmentContext';
 
 export interface ImgProps extends ImgHTMLAttributes<HTMLImageElement> {
   /** Timeout for holdRender in milliseconds. Default: 30000 */
@@ -13,6 +14,7 @@ export function Img({
   ...imgProps
 }: ImgProps): React.ReactElement {
   const holdHandleRef = useRef<number | null>(null);
+  const { environment } = useContext(RendivEnvironmentContext);
 
   useEffect(() => {
     const handle = holdRender(
@@ -46,9 +48,14 @@ export function Img({
         releaseRender(holdHandleRef.current);
         holdHandleRef.current = null;
       }
-      userOnError?.(e);
+      if (userOnError) {
+        userOnError(e);
+      } else if (environment === 'rendering') {
+        // A frame with a missing image must not be captured: without an onError of its own, the render fails.
+        throw new Error(`<Img> could not load "${imgProps.src}". Pass onError to handle the failure yourself.`);
+      }
     },
-    [userOnError],
+    [userOnError, environment, imgProps.src],
   );
 
   return (
