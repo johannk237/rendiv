@@ -29,7 +29,7 @@ export const Sequence: React.FC<SequenceProps> = ({
   name,
   layout = 'absolute-fill',
   style,
-  trackIndex = 0,
+  trackIndex,
   playbackRate = 1,
   premountFor = 0,
   children,
@@ -66,7 +66,11 @@ export const Sequence: React.FC<SequenceProps> = ({
   const scopeOffset = canvasElementCtx?.scopeOffset ?? 0;
   let absoluteFrom = baseAbsoluteFrom;
   let effectiveDuration = durationInFrames;
-  let effectiveTrackIndex = trackIndex;
+  let effectiveTrackIndex = trackIndex ?? 0;
+  // A track is only stacked (z-index) when it was asked for: by the prop or by a timeline override. Without one,
+  // siblings stack in document order; a z-index on every Sequence put the scenes of a transition
+  // above the presentation's own layers (an iris circle hidden under the scene it replaces) and above overlays.
+  let stacked = trackIndex !== undefined;
   let offsetX = 0;
   let offsetY = 0;
   let scaleX = 1;
@@ -81,6 +85,7 @@ export const Sequence: React.FC<SequenceProps> = ({
       effectiveDuration = override.durationInFrames;
       if (override.trackIndex !== undefined) {
         effectiveTrackIndex = override.trackIndex;
+        stacked = true;
       }
       if (override.x !== undefined) offsetX = override.x;
       if (override.y !== undefined) offsetY = override.y;
@@ -89,7 +94,7 @@ export const Sequence: React.FC<SequenceProps> = ({
       if (override.playbackRate !== undefined) effectivePlaybackRate = override.playbackRate;
     }
   }
-  const trackZIndex = effectiveTrackIndex !== undefined ? 10000 - effectiveTrackIndex : undefined;
+  const trackZIndex = stacked ? 10000 - effectiveTrackIndex : undefined;
 
   const currentFrame = timeline.frame;
 

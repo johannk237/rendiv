@@ -115,14 +115,14 @@ describe('Sequence', () => {
     expect(Number(front.style.zIndex)).toBeGreaterThan(Number(back.style.zIndex));
   });
 
-  it('defaults trackIndex to 0 when not set', () => {
+  it('has no zIndex when no track is asked for (siblings stack in document order)', () => {
     const { container } = renderAtFrame(0, (
       <Sequence from={0}>
         <FrameDisplay />
       </Sequence>
     ));
     const fill = container.querySelector('[data-testid="frame"]')!.parentElement!;
-    expect(fill.style.zIndex).toBe('10000');
+    expect(fill.style.zIndex).toBe('');
   });
 
   it('playbackRate=2 doubles the frame rate children see', () => {
