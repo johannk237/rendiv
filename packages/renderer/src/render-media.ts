@@ -32,6 +32,8 @@ export interface RenderMediaOptions {
   crf?: number;
   /** Video encoder override (e.g. libx264, h264_videotoolbox, h264_nvenc). */
   videoEncoder?: string;
+  /** Pixel format of the MP4 (default yuv420p). yuvj420p keeps the full range of JPEG frames. */
+  pixelFormat?: string;
   /** GL renderer for headless Chromium. Default: swiftshader */
   gl?: GlRenderer;
   /** Enable per-frame profiling. Default: false */
@@ -63,6 +65,7 @@ export async function renderMedia(options: RenderMediaOptions): Promise<RenderMe
     encodingPreset,
     crf,
     videoEncoder,
+    pixelFormat,
     gl,
     profiling = false,
     scale,
@@ -146,6 +149,7 @@ export async function renderMedia(options: RenderMediaOptions): Promise<RenderMe
       crf,
       encodingPreset,
       videoEncoder,
+      pixelFormat,
       imageFormat,
       audioSources,
       assetsDir: serveUrl,
