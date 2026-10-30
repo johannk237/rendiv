@@ -223,12 +223,15 @@ export async function stitchFramesToVideo(options: StitchOptions): Promise<void>
     }
 
     // Mix all audio tracks together, then pad with silence: the soundtrack must outlast the video, or -shortest would
-    // cut the video where the last sound ends
+    // cut the video where the last sound ends. The padding is bounded to the video's length: left endless, a slow
+    // video encode let the audio run ahead of it (a 3 s video came out with 13 minutes of silence).
+    const videoSec = fs.readdirSync(framesDir).filter((f) => f.endsWith(`.${ext}`)).length / fps;
+    const pad = `apad=whole_dur=${videoSec.toFixed(6)}`;
     if (mixInputs.length === 1) {
-      filterGraph = filterParts[0].slice(0, filterParts[0].lastIndexOf('[')) + ',apad[aout]';
+      filterGraph = filterParts[0].slice(0, filterParts[0].lastIndexOf('[')) + `,${pad}[aout]`;
     } else {
       filterGraph = filterParts.join(';')
-        + `;${mixInputs.join('')}amix=inputs=${mixInputs.length}:duration=longest:normalize=0,apad[aout]`;
+        + `;${mixInputs.join('')}amix=inputs=${mixInputs.length}:duration=longest:normalize=0,${pad}[aout]`;
     }
 
     args.push('-filter_complex', filterGraph);
