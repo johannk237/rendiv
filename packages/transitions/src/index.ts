@@ -26,3 +26,6 @@ export { slide, type SlideDirection, type SlideOptions } from './presentations/s
 export { wipe, type WipeDirection, type WipeOptions } from './presentations/wipe';
 export { flip, type FlipDirection, type FlipOptions } from './presentations/flip';
 export { clockWipe, type ClockWipeOptions } from './presentations/clock-wipe';
+export { iris, type IrisOptions } from './presentations/iris';
+export { pushCut, type PushCutOptions } from './presentations/push-cut';
+export { none } from './presentations/none';
