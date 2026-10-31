@@ -68,4 +68,23 @@ describe('interpolate', () => {
   it('throws on ranges with fewer than 2 elements', () => {
     expect(() => interpolate(5, [0], [0])).toThrow();
   });
+
+  it('takes one easing per segment', () => {
+    const easing = [Easing.linear, (t: number) => t * t];
+    expect(interpolate(5, [0, 10, 20], [0, 100, 200], { easing })).toBeCloseTo(50);
+    expect(interpolate(15, [0, 10, 20], [0, 100, 200], { easing })).toBeCloseTo(125);
+    expect(() => interpolate(5, [0, 10, 20], [0, 100, 200], { easing: [Easing.linear] })).toThrow();
+  });
+
+  it('posterizes the input', () => {
+    expect(interpolate(7, [0, 10], [0, 100], { posterize: 2 })).toBeCloseTo(60);
+    expect(interpolate(7.9, [0, 10], [0, 100], { posterize: 2 })).toBeCloseTo(60);
+    expect(() => interpolate(7, [0, 10], [0, 100], { posterize: 0 })).toThrow();
+  });
+
+  it('wraps over the first or last segment', () => {
+    expect(interpolate(12, [0, 10], [0, 100], { extrapolateRight: 'wrap' })).toBeCloseTo(20);
+    expect(interpolate(-3, [0, 10], [0, 100], { extrapolateLeft: 'wrap' })).toBeCloseTo(70);
+    expect(interpolate(25, [0, 10, 20], [0, 100, 300], { extrapolateRight: 'wrap' })).toBeCloseTo(200);
+  });
 });

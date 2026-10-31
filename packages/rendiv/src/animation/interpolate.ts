@@ -1,11 +1,22 @@
 import type { EasingFunction } from './easing';
 
-export type ExtrapolationType = 'extend' | 'clamp' | 'identity';
+/** Outside the input range: keep the slope (extend), hold the end value (clamp), return the input (identity) or loop over
+ *  the first (or last) segment (wrap). */
+export type ExtrapolationType = 'extend' | 'clamp' | 'identity' | 'wrap';
 
 export interface InterpolateOptions {
-  easing?: EasingFunction;
+  /** One easing for every segment, or one per segment (inputRange.length - 1 of them). */
+  easing?: EasingFunction | readonly EasingFunction[];
   extrapolateLeft?: ExtrapolationType;
   extrapolateRight?: ExtrapolationType;
+  /** Rounds the input down to a multiple of this first (stepped motion, e.g. on twos). */
+  posterize?: number;
+}
+
+function wrapInto(value: number, min: number, max: number): number {
+  const range = max - min;
+  if (range === 0) return min;
+  return ((((value - min) % range) + range) % range) + min;
 }
 
 function findSegment(
@@ -64,55 +75,67 @@ export function interpolate(
     easing,
     extrapolateLeft = 'extend',
     extrapolateRight = 'extend',
+    posterize,
   } = options ?? {};
 
+  if (easing !== undefined && typeof easing !== 'function' && easing.length !== inputRange.length - 1) {
+    throw new Error(
+      `easing has ${easing.length} entries, but there are ${inputRange.length - 1} segments: give one easing per segment.`
+    );
+  }
+  if (posterize !== undefined && !(Number.isFinite(posterize) && posterize > 0)) {
+    throw new Error(`posterize must be a positive finite number, but got ${posterize}.`);
+  }
+  const easingOf = (seg: number) => (typeof easing === 'function' ? easing : easing?.[seg]);
+  const x = posterize === undefined ? input : Math.floor(input / posterize) * posterize;
+
   // Handle values below the input range
-  if (input < inputRange[0]) {
+  if (x < inputRange[0]) {
     if (extrapolateLeft === 'clamp') {
       return outputRange[0];
     }
     if (extrapolateLeft === 'identity') {
-      return input;
+      return x;
     }
-    // extend: extrapolate from the first segment
+    // extend: extrapolate from the first segment; wrap: loop over it
     return interpolateSegment(
-      input,
+      extrapolateLeft === 'wrap' ? wrapInto(x, inputRange[0], inputRange[1]) : x,
       inputRange[0],
       inputRange[1],
       outputRange[0],
       outputRange[1],
-      easing
+      easingOf(0)
     );
   }
 
   // Handle values above the input range
-  if (input > inputRange[inputRange.length - 1]) {
+  if (x > inputRange[inputRange.length - 1]) {
     if (extrapolateRight === 'clamp') {
       return outputRange[outputRange.length - 1];
     }
     if (extrapolateRight === 'identity') {
-      return input;
+      return x;
     }
-    // extend: extrapolate from the last segment
+    // extend: extrapolate from the last segment; wrap: loop over it
     const last = inputRange.length - 1;
     return interpolateSegment(
-      input,
+      extrapolateRight === 'wrap' ? wrapInto(x, inputRange[last - 1], inputRange[last]) : x,
       inputRange[last - 1],
       inputRange[last],
       outputRange[last - 1],
       outputRange[last],
-      easing
+      easingOf(last - 1)
     );
   }
 
   // Find the correct segment and interpolate
-  const seg = findSegment(input, inputRange);
+  const seg = findSegment(x, inputRange);
   return interpolateSegment(
-    input,
+    x,
     inputRange[seg],
     inputRange[seg + 1],
     outputRange[seg],
     outputRange[seg + 1],
-    easing
+    easingOf(seg)
   );
 }
