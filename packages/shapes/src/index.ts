@@ -6,3 +6,4 @@ export { shapeTriangle, type ShapeTriangleOptions, type TriangleDirection } from
 export { shapePolygon, type ShapePolygonOptions } from './polygon';
 export { shapeStar, type ShapeStarOptions } from './star';
 export { shapePie, type ShapePieOptions } from './pie';
+export { shapeHeart, type ShapeHeartOptions } from './heart';

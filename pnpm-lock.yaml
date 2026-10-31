@@ -504,6 +504,9 @@ importers:
       vite-plugin-dts:
         specifier: ^4.3.0
         version: 4.5.4(@types/node@22.19.11)(rollup@4.58.0)(typescript@5.9.3)(vite@6.4.1(@types/node@22.19.11))
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.19.11)(jsdom@25.0.1)
 
   packages/skills:
     devDependencies:
